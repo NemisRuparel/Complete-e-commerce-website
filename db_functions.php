@@ -1,5 +1,5 @@
 <?php
-session_start();
+// session_start();
 
 // Database connection details
 $host = 'localhost';

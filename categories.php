@@ -2,27 +2,44 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
-$conn = new mysqli('localhost', 'root', '', 'shopnow');
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+function get_db_connection() {
+    $conn = mysqli_connect('localhost', 'root', '');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
+    }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
 }
+
+function get_user_data($conn, $user_id) {
+    $user_name = '';
+    $profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    
+    if ($user_id) {
+        $query = "SELECT name, profile_image FROM users WHERE id = " . intval($user_id);
+        $result = mysqli_query($conn, $query);
+        if ($result && mysqli_num_rows($result) > 0) {
+            $row = mysqli_fetch_array($result);
+            $user_name = $row['name'];
+            if ($row['profile_image']) {
+                $profile_image = $row['profile_image'];
+            }
+        }
+    }
+    
+    return ['user_name' => $user_name, 'profile_image' => $profile_image];
+}
+
+$conn = get_db_connection();
 
 // Fetch user data if logged in
-$user_name = '';
-$profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; // Default profile image
-if (isset($_SESSION['user_id'])) {
-    $stmt = $conn->prepare("SELECT name, profile_image FROM users WHERE id = ?");
-    $stmt->bind_param("i", $_SESSION['user_id']);
-    $stmt->execute();
-    $stmt->bind_result($user_name, $db_profile_image);
-    $stmt->fetch();
-    $stmt->close();
-    if ($db_profile_image) {
-        $profile_image = $db_profile_image;
-    }
-}
+$user_data = get_user_data($conn, isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null);
+$user_name = $user_data['user_name'];
+$profile_image = $user_data['profile_image'];
 
-$conn->close();
+mysqli_close($conn);
 ?>
 
 <!DOCTYPE html>

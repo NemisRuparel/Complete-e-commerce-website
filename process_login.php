@@ -1,35 +1,47 @@
 <?php
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
-// Database connection
-$conn = new mysqli("localhost", "username", "password", "database_name");
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+function get_db_connection() {
+    $conn = mysqli_connect('localhost', 'root', '', 'shopnow');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
+    }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
 }
 
-$email = $_POST['email'];
-$password = $_POST['password'];
+$conn = get_db_connection();
 
-$sql = "SELECT * FROM users WHERE email = ?";
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("s", $email);
-$stmt->execute();
-$result = $stmt->get_result();
+$email = filter_var($_POST['email'] ?? '', FILTER_SANITIZE_EMAIL);
+$password = $_POST['password'] ?? '';
 
-if ($result->num_rows > 0) {
-    $user = $result->fetch_assoc();
-    if (password_verify($password, $user['password'])) {
+if (empty($email) || empty($password)) {
+    header("Location: login.php?error=invalid");
+    exit;
+}
+
+$email = mysqli_real_escape_string($conn, $email);
+$query = "SELECT id, name, password_hash FROM users WHERE email = '$email'";
+$result = mysqli_query($conn, $query);
+
+if ($result && mysqli_num_rows($result) > 0) {
+    $user = mysqli_fetch_array($result);
+    if (password_verify($password, $user['password_hash'])) {
         $_SESSION['user_id'] = $user['id'];
-        $_SESSION['username'] = $user['username'];
-        header("Location: dashboard.php");
+        $_SESSION['user_name'] = $user['name'];
+        header("Location: index.php");
+        exit;
     } else {
         header("Location: login.php?error=invalid");
+        exit;
     }
 } else {
     header("Location: login.php?error=invalid");
+    exit;
 }
 
-$stmt->close();
-$conn->close();
+mysqli_close($conn);
 ?>

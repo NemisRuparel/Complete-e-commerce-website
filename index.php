@@ -2,27 +2,42 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
-$conn = new mysqli('localhost', 'root', '', 'shopnow');
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
-
-// Fetch user data if logged in
-$user_name = '';
-$profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; // Default profile image
-if (isset($_SESSION['user_id'])) {
-    $stmt = $conn->prepare("SELECT name, profile_image FROM users WHERE id = ?");
-    $stmt->bind_param("i", $_SESSION['user_id']);
-    $stmt->execute();
-    $stmt->bind_result($user_name, $db_profile_image);
-    $stmt->fetch();
-    $stmt->close();
-    if ($db_profile_image) {
-        $profile_image = $db_profile_image; // Use user's uploaded image if available
+function get_db_connection() {
+    $conn = mysqli_connect('localhost', 'root', '');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
     }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
 }
 
-$conn->close();
+function get_user_data($conn, $user_id) {
+    $user_name = '';
+    $profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    
+    if ($user_id) {
+        $query = "SELECT name, profile_image FROM users WHERE id = " . intval($user_id);
+        $result = mysqli_query($conn, $query);
+        if ($result && mysqli_num_rows($result) > 0) {
+            $row = mysqli_fetch_array($result);
+            $user_name = $row['name'];
+            if ($row['profile_image']) {
+                $profile_image = $row['profile_image'];
+            }
+        }
+    }
+    
+    return ['user_name' => $user_name, 'profile_image' => $profile_image];
+}
+
+$conn = get_db_connection();
+$user_data = get_user_data($conn, isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null);
+$user_name = $user_data['user_name'];
+$profile_image = $user_data['profile_image'];
+
+mysqli_close($conn);
 ?>
 
 <!DOCTYPE html>
@@ -481,8 +496,8 @@ $conn->close();
                         <a href="cart.php" class="nav-icon"><i class="fas fa-shopping-cart"></i></a>
                         <?php if (isset($_SESSION['user_id'])): ?>
                             <div class="profile-container">
-                                <img src="<?php echo htmlspecialchars($profile_image); ?>" alt="Profile" class="profile-image">
-                                <span class="user-name"><?php echo htmlspecialchars($user_name); ?></span>
+                                <img src="<?php echo $profile_image ?>" alt="Profile" class="profile-image">
+                                <span class="user-name"><?php echo $user_name ?></span>
                                 <div class="dropdown">
                                     <a href="logout.php">Logout</a>
                                 </div>
@@ -491,11 +506,6 @@ $conn->close();
                             <a href="signin.php" class="nav-icon"><i class="fas fa-user"></i></a>
                         <?php endif; ?>
                     </div>
-                    <!-- Uncomment if you want to enable search bar -->
-                    <!-- <div class="search-bar">
-                        <input type="text" placeholder="Search products...">
-                        <button><i class="fas fa-search"></i></button>
-                    </div> -->
                 </div>
             </nav>
         </div>
@@ -526,6 +536,7 @@ $conn->close();
                                 <input type="hidden" name="product_name" value="Kitchen Knife Set">
                                 <input type="hidden" name="product_price" value="15.99">
                                 <input type="hidden" name="product_image" value="assets/images/kitchen_knife_set.jpg">
+                                <input type="hidden" name="quantity" value="1">
                                 <button type="submit" name="add_to_cart" class="add-to-cart">Add to Cart</button>
                             </form>
                         </div>
@@ -540,6 +551,7 @@ $conn->close();
                                 <input type="hidden" name="product_name" value="Bath Towel Set">
                                 <input type="hidden" name="product_price" value="8.99">
                                 <input type="hidden" name="product_image" value="assets/images/bath_towel_set.jpg">
+                                <input type="hidden" name="quantity" value="1">
                                 <button type="submit" name="add_to_cart" class="add-to-cart">Add to Cart</button>
                             </form>
                         </div>
@@ -554,6 +566,7 @@ $conn->close();
                                 <input type="hidden" name="product_name" value="Cleaning Supplies Kit">
                                 <input type="hidden" name="product_price" value="12.99">
                                 <input type="hidden" name="product_image" value="assets/images/cleaning_supplies_kit.jpg">
+                                <input type="hidden" name="quantity" value="1">
                                 <button type="submit" name="add_to_cart" class="add-to-cart">Add to Cart</button>
                             </form>
                         </div>
@@ -626,7 +639,7 @@ $conn->close();
             document.addEventListener('click', function(event) {
                 if (!navLinks.contains(event.target) && !menuToggle.contains(event.target)) {
                     navLinks.classList.remove('active');
-                    const icon = menuToggle.querySelector('i');
+                    const icon = menuToggle.querySelector('i');                    
                     icon.classList.remove('fa-times');
                     icon.classList.add('fa-bars');
                 }

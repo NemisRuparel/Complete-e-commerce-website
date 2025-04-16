@@ -1,29 +1,16 @@
 <?php
-// Secure session settings (comment out 'secure' if not using HTTPS)
-session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']); // Moved before session_start()
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
-require 'db_functions.php'; // Include database functions
+require 'db_functions.php'; 
 
-// Generate CSRF token if not set
-if (empty($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
 
-// Initialize cart if it doesn't exist
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-// Handle adding items to cart
-if (isset($_POST['add_to_cart'])) {
-    // Validate CSRF token
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $_SESSION['error'] = "Invalid CSRF token";
-        header('Location: cart.php');
-        exit;
-    }
 
-    // Validate required fields
+if (isset($_POST['add_to_cart'])) {
+
     if (!isset($_POST['product_id']) || !isset($_POST['product_name']) || 
         !isset($_POST['product_price']) || !isset($_POST['product_image']) ||
         !isset($_POST['quantity'])) {
@@ -38,14 +25,12 @@ if (isset($_POST['add_to_cart'])) {
     $product_image = filter_var($_POST['product_image'], FILTER_SANITIZE_URL);
     $quantity = (int)$_POST['quantity'];
 
-    // Validate data types and quantity
     if ($product_id <= 0 || $product_price < 0 || $quantity < 1 || $quantity > 10) {
         $_SESSION['error'] = "Invalid product data or quantity (1-10 allowed)";
         header('Location: cart.php');
         exit;
     }
 
-    // Check if product already exists in cart
     $found = false;
     foreach ($_SESSION['cart'] as &$item) {
         if ($item['id'] == $product_id) {
@@ -61,7 +46,6 @@ if (isset($_POST['add_to_cart'])) {
         }
     }
 
-    // If product not found, add it to cart
     if (!$found) {
         $_SESSION['cart'][] = [
             'id' => $product_id,
@@ -77,7 +61,6 @@ if (isset($_POST['add_to_cart'])) {
     exit;
 }
 
-// Handle removing items from cart
 if (isset($_GET['remove'])) {
     $remove_id = (int)$_GET['remove'];
     foreach ($_SESSION['cart'] as $key => $item) {
@@ -91,14 +74,8 @@ if (isset($_GET['remove'])) {
     exit;
 }
 
-// Handle updating quantities
-if (isset($_POST['update_quantity'])) {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        $_SESSION['error'] = "Invalid CSRF token";
-        header('Location: cart.php');
-        exit;
-    }
 
+if (isset($_POST['update_quantity'])) {
     foreach ($_POST['quantity'] as $id => $qty) {
         $quantity = (int)$qty;
         if ($quantity < 1) $quantity = 1;
@@ -115,13 +92,13 @@ if (isset($_POST['update_quantity'])) {
     exit;
 }
 
-// Calculate total
+
 $total = 0;
 foreach ($_SESSION['cart'] as $item) {
     $total += $item['price'] * $item['quantity'];
 }
 
-// Check if checkout was clicked
+
 $showCheckoutPrompt = false;
 if (isset($_GET['checkout']) && !isset($_SESSION['user_id'])) {
     $showCheckoutPrompt = true;
@@ -515,7 +492,6 @@ if (isset($_GET['checkout']) && !isset($_SESSION['user_id'])) {
                     </div>
                 <?php else: ?>
                     <form method="post" action="cart.php">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <div class="cart-items">
                             <?php foreach ($_SESSION['cart'] as $item): ?>
                                 <div class="cart-item">

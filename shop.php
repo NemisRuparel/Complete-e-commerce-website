@@ -3,32 +3,44 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
 require 'db_functions.php';
 
-// Generate CSRF token if not set
-if (empty($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+function get_db_connection() {
+    $conn = mysqli_connect('localhost', 'root', '');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
+    }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
 }
 
-$conn = new mysqli('localhost', 'root', '', 'shopnow');
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+function get_user_data($conn, $user_id) {
+    $user_name = '';
+    $profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    
+    if ($user_id) {
+        $query = "SELECT name, profile_image FROM users WHERE id = " . intval($user_id);
+        $result = mysqli_query($conn, $query);
+        if ($result && mysqli_num_rows($result) > 0) {
+            $row = mysqli_fetch_array($result);
+            $user_name = $row['name'];
+            if ($row['profile_image']) {
+                $profile_image = $row['profile_image'];
+            }
+        }
+    }
+    
+    return ['user_name' => $user_name, 'profile_image' => $profile_image];
 }
+
+$conn = get_db_connection();
 
 // Fetch user data if logged in
-$user_name = '';
-$profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; // Default profile image
-if (isset($_SESSION['user_id'])) {
-    $stmt = $conn->prepare("SELECT name, profile_image FROM users WHERE id = ?");
-    $stmt->bind_param("i", $_SESSION['user_id']);
-    $stmt->execute();
-    $stmt->bind_result($user_name, $db_profile_image);
-    $stmt->fetch();
-    $stmt->close();
-    if ($db_profile_image) {
-        $profile_image = $db_profile_image;
-    }
-}
+$user_data = get_user_data($conn, isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null);
+$user_name = $user_data['user_name'];
+$profile_image = $user_data['profile_image'];
 
-// Get products from the database
+// Get products from the database (assuming get_all_products() is defined in db_functions.php)
 $products = get_all_products();
 
 // Get the category from URL parameter
@@ -36,11 +48,13 @@ $selectedCategory = isset($_GET['category']) ? $_GET['category'] : '';
 
 // Filter products by category if a category is selected
 $filteredProducts = $selectedCategory ? 
-    array_filter($products, fn($product) => $product['category'] === $selectedCategory) : 
+    array_filter($products, function($product) use ($selectedCategory) {
+        return $product['category'] === $selectedCategory;
+    }) : 
     $products;
 
 $productsJson = json_encode(array_values($filteredProducts));
-$conn->close();
+mysqli_close($conn);
 ?>
 
 <!DOCTYPE html>
@@ -105,6 +119,7 @@ $conn->close();
             display: flex;
             justify-content: space-between;
             align-items: center;
+            
         }
 
         .logo {
@@ -648,7 +663,6 @@ $conn->close();
                                         <input type="hidden" name="product_name" value="<?php echo htmlspecialchars($product['name']); ?>">
                                         <input type="hidden" name="product_price" value="<?php echo $product['price']; ?>">
                                         <input type="hidden" name="product_image" value="<?php echo htmlspecialchars($product['image_url']); ?>">
-                                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                         <input type="number" name="quantity" value="1" min="1" max="<?php echo $product['stock_quantity']; ?>" class="quantity-input">
                                         <button type="submit" name="add_to_cart" class="add-to-cart">Add to Cart</button>
                                     </form>

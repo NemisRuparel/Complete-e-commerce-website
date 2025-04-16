@@ -2,25 +2,56 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
-$conn = new mysqli('localhost', 'root', '', 'shopnow');
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+function get_db_connection() {
+    $conn = mysqli_connect('localhost', 'root', '');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
+    }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
 }
 
-// Fetch user data if logged in
-$user_name = '';
-$profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; // Default profile image
-if (isset($_SESSION['user_id'])) {
-    $stmt = $conn->prepare("SELECT name, profile_image FROM users WHERE id = ?");
-    $stmt->bind_param("i", $_SESSION['user_id']);
-    $stmt->execute();
-    $stmt->bind_result($user_name, $db_profile_image);
-    $stmt->fetch();
-    $stmt->close();
-    if ($db_profile_image) {
-        $profile_image = $db_profile_image; // Use user's uploaded image if available
+function get_user_data($conn, $user_id) {
+    $user_name = '';
+    $profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    
+    if ($user_id) {
+        $query = "SELECT name, profile_image FROM users WHERE id = " . intval($user_id);
+        $result = mysqli_query($conn, $query);
+        if ($result && mysqli_num_rows($result) > 0) {
+            $row = mysqli_fetch_array($result);
+            $user_name = $row['name'];
+            if ($row['profile_image']) {
+                $profile_image = $row['profile_image'];
+            }
+        }
     }
+    
+    return ['user_name' => $user_name, 'profile_image' => $profile_image];
 }
+
+function authenticate_user($conn, $email, $password) {
+    $email = mysqli_real_escape_string($conn, $email);
+    $query = "SELECT id, name, password_hash FROM users WHERE email = '$email'";
+    $result = mysqli_query($conn, $query);
+    
+    if ($result && mysqli_num_rows($result) > 0) {
+        $row = mysqli_fetch_array($result);
+        if (password_verify($password, $row['password_hash'])) {
+            return ['id' => $row['id'], 'name' => $row['name']];
+        }
+    }
+    return false;
+}
+
+$conn = get_db_connection();
+
+// Fetch user data if logged in
+$user_data = get_user_data($conn, isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null);
+$user_name = $user_data['user_name'];
+$profile_image = $user_data['profile_image'];
 
 $successMessage = '';
 $errorMessage = '';
@@ -34,31 +65,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errorMessage = "<strong>Error:</strong> Invalid email address.";
     } else {
-        $stmt = $conn->prepare("SELECT id, name, password_hash FROM users WHERE email = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $stmt->store_result();
-
-        if ($stmt->num_rows > 0) {
-            $stmt->bind_result($id, $name, $hashedPassword);
-            $stmt->fetch();
-
-            if (password_verify($password, $hashedPassword)) {
-                $_SESSION['user_id'] = $id;
-                $_SESSION['user_name'] = $name;
-                header("Location: index.php");
-                exit;
-            } else {
-                $errorMessage = "<strong>Error:</strong> Incorrect password.";
-            }
+        $user = authenticate_user($conn, $email, $password);
+        if ($user) {
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['user_name'] = $user['name'];
+            header("Location: index.php");
+            exit;
         } else {
-            $errorMessage = "<strong>Error:</strong> Email not found.";
+            $errorMessage = "<strong>Error:</strong> Email or password incorrect.";
         }
-        $stmt->close();
     }
 }
 
-$conn->close();
+mysqli_close($conn);
 ?>
 
 <!DOCTYPE html>
@@ -573,7 +592,7 @@ $conn->close();
                 <a href="#"><i class="fab fa-twitter"></i></a>
                 <a href="#"><i class="fab fa-instagram"></i></a>
                 <a href="#"><i class="fab fa-linkedin"></i></a>
-                </div>
+            </div>
             <p class="copyright">© 2025 SHOP NOW. All rights reserved.</p>
         </div>
     </footer>

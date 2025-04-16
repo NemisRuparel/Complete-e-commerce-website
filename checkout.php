@@ -1,7 +1,17 @@
 <?php
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
-require 'db_functions.php';
+
+function get_db_connection() {
+    $conn = mysqli_connect('localhost', 'root', '', 'shopnow');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
+    }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
+}
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
@@ -16,9 +26,15 @@ if (empty($_SESSION['cart'])) {
 }
 
 // Fetch user data
-$conn = db_connect();
+$conn = get_db_connection();
 $query = "SELECT name, email, phone, address, profile_image FROM users WHERE id = " . (int)$_SESSION['user_id'];
 $result = mysqli_query($conn, $query);
+if (!$result || mysqli_num_rows($result) == 0) {
+    $_SESSION['error'] = "User not found";
+    mysqli_close($conn);
+    header('Location: checkout.php');
+    exit;
+}
 $user = mysqli_fetch_array($result);
 $user_name = $user['name'];
 $profile_image = $user['profile_image'] ? $user['profile_image'] : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
@@ -32,16 +48,24 @@ foreach ($_SESSION['cart'] as $item) {
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Validate and sanitize input
-    $name = htmlspecialchars(strip_tags($_POST['name']));
-    $email = filter_var($_POST['email'], FILTER_SANITIZE_EMAIL);
-    $phone = htmlspecialchars(strip_tags($_POST['phone']));
-    $address = htmlspecialchars(strip_tags($_POST['address']));
-    $city = htmlspecialchars(strip_tags($_POST['city']));
-    $state = htmlspecialchars(strip_tags($_POST['state']));
-    $zip = htmlspecialchars(strip_tags($_POST['zip']));
+    $name = htmlspecialchars(strip_tags($_POST['name'] ?? ''));
+    $email = filter_var($_POST['email'] ?? '', FILTER_SANITIZE_EMAIL);
+    $phone = htmlspecialchars(strip_tags($_POST['phone'] ?? ''));
+    $address = htmlspecialchars(strip_tags($_POST['address'] ?? ''));
+    $city = htmlspecialchars(strip_tags($_POST['city'] ?? ''));
+    $state = htmlspecialchars(strip_tags($_POST['state'] ?? ''));
+    $zip = htmlspecialchars(strip_tags($_POST['zip'] ?? ''));
+
+    if (empty($name) || empty($email) || empty($phone) || empty($address) || empty($city) || empty($state) || empty($zip)) {
+        $_SESSION['error'] = "All fields are required";
+        mysqli_close($conn);
+        header('Location: checkout.php');
+        exit;
+    }
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $_SESSION['error'] = "Invalid email address";
+        mysqli_close($conn);
         header('Location: checkout.php');
         exit;
     }
@@ -51,45 +75,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     foreach ($_SESSION['cart'] as $item) {
         $query = "SELECT stock_quantity FROM products WHERE id = " . (int)$item['id'];
         $result = mysqli_query($conn, $query);
-        $product = mysqli_fetch_array($result);
-        if ($product['stock_quantity'] < $item['quantity']) {
+        if ($result && mysqli_num_rows($result) > 0) {
+            $product = mysqli_fetch_array($result);
+            if ($product['stock_quantity'] < $item['quantity']) {
+                $out_of_stock = true;
+                $_SESSION['error'] = "Insufficient stock for " . htmlspecialchars($item['name']);
+                break;
+            }
+        } else {
+            $_SESSION['error'] = "Product not found: " . htmlspecialchars($item['name']);
             $out_of_stock = true;
-            $_SESSION['error'] = "Insufficient stock for " . htmlspecialchars($item['name']);
             break;
         }
     }
 
     if ($out_of_stock) {
-        db_close($conn);
+        mysqli_close($conn);
         header('Location: checkout.php');
         exit;
     }
 
     // Create order in database
     $user_id = (int)$_SESSION['user_id'];
-    $order_id = create_order($user_id, $total);
-    if (is_string($order_id)) {
-        $_SESSION['error'] = "Order creation failed: " . $order_id;
-        db_close($conn);
+    $order_date = date('Y-m-d H:i:s');
+    $query = "INSERT INTO orders (user_id, total, order_date) VALUES ($user_id, $total, '$order_date')";
+    if (!mysqli_query($conn, $query)) {
+        $_SESSION['error'] = "Order creation failed: " . mysqli_error($conn);
+        mysqli_close($conn);
         header('Location: checkout.php');
         exit;
     }
+    $order_id = mysqli_insert_id($conn);
 
     // Add order items and update stock
     foreach ($_SESSION['cart'] as $item) {
-        $result = add_order_item($order_id, $item['id'], $item['quantity'], $item['price']);
-        if (is_string($result)) {
-            $_SESSION['error'] = "Failed to add item to order: " . $result;
-            db_close($conn);
+        $product_id = (int)$item['id'];
+        $quantity = (int)$item['quantity'];
+        $price = $item['price'];
+        $query = "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($order_id, $product_id, $quantity, $price)";
+        if (!mysqli_query($conn, $query)) {
+            $_SESSION['error'] = "Failed to add item to order: " . mysqli_error($conn);
+            mysqli_close($conn);
             header('Location: checkout.php');
             exit;
         }
         // Update stock quantity
-        $query = "UPDATE products SET stock_quantity = stock_quantity - " . (int)$item['quantity'] . 
-                 " WHERE id = " . (int)$item['id'];
-        mysqli_query($conn, $query);
+        $query = "UPDATE products SET stock_quantity = stock_quantity - $quantity WHERE id = $product_id";
+        if (!mysqli_query($conn, $query)) {
+            $_SESSION['error'] = "Failed to update stock: " . mysqli_error($conn);
+            mysqli_close($conn);
+            header('Location: checkout.php');
+            exit;
+        }
     }
-    db_close($conn);
 
     // Store order details for invoice
     $_SESSION['order'] = [
@@ -101,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ],
         'items' => $_SESSION['cart'],
         'total' => $total,
-        'order_date' => date('Y-m-d H:i:s'),
+        'order_date' => $order_date,
         'order_id' => $order_id
     ];
 
@@ -110,9 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $_SESSION['success'] = "Order placed successfully!";
 
     // Redirect to invoice
-    header('Location: invoice.php');
+    mysqli_close($conn);
+    header('Location: order_confirmation.php');
     exit;
 }
+mysqli_close($conn);
 ?>
 
 <!DOCTYPE html>
@@ -481,11 +521,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <h2>Shipping Information</h2>
                     <div class="form-group">
                         <label for="name">Full Name</label>
-                        <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($user['name']); ?>" required>
+                        <input type="text" id="name" name="name" value="<?php echo htmlspecialchars($user['name']); ?>" readonly>
                     </div>
                     <div class="form-group">
                         <label for="email">Email</label>
-                        <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($user['email']); ?>" required>
+                        <input type="email" id="email" name="email" value="<?php echo htmlspecialchars($user['email']); ?>" readonly>
                     </div>
                     <div class="form-group">
                         <label for="phone">Phone Number</label>
@@ -557,4 +597,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </script>
 </body>
 </html>
-<?php db_close($conn); ?>
