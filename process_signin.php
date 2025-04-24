@@ -15,8 +15,12 @@ function get_db_connection() {
 
 $conn = get_db_connection();
 
-$name = filter_var($_POST['name'] ?? '', FILTER_SANITIZE_STRING);
-$email = filter_var($_POST['email'] ?? '', FILTER_SANITIZE_EMAIL);
+$name = $_POST['name'] ?? '';
+$name = filter_var($name, FILTER_SANITIZE_STRING);
+
+$email = $_POST['email'] ?? '';
+$email = filter_var($email, FILTER_SANITIZE_EMAIL);
+
 $password = $_POST['password'] ?? '';
 $confirm_password = $_POST['confirm_password'] ?? '';
 

@@ -2,10 +2,10 @@
 // session_start();
 
 // Database connection details
-$host = 'sql101.infinityfree.com';
-$username = 'if0_38793211';
-$password = 'shopnow12345'; // Update if your MySQL has a password
-$database = 'if0_38793211_shopnow';
+$host = 'localhost';
+$username = 'root';
+$password = ''; // Update if your MySQL has a password
+$database = 'shopnow';
 
 // Connect to MySQL
 function db_connect() {

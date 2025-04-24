@@ -2,30 +2,37 @@
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
 session_start();
 
-$conn = new mysqli('localhost', 'root', '', 'shopnow');
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+function get_db_connection() {
+    $conn = mysqli_connect('localhost','root','');
+    if (!$conn) {
+        die("Connection failed: " . mysqli_error($conn));
+    }
+    if (!mysqli_select_db($conn, 'shopnow')) {
+        die("Database selection failed: " . mysqli_error($conn));
+    }
+    return $conn;
 }
 
 // Fetch user data if logged in
 $user_name = '';
 $profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; // Default profile image
+$conn = get_db_connection();
 if (isset($_SESSION['user_id'])) {
-    $stmt = $conn->prepare("SELECT name, profile_image FROM users WHERE id = ?");
-    $stmt->bind_param("i", $_SESSION['user_id']);
-    $stmt->execute();
-    $stmt->bind_result($user_name, $db_profile_image);
-    $stmt->fetch();
-    $stmt->close();
-    if ($db_profile_image) {
-        $profile_image = $db_profile_image; // Use user's uploaded image if available
+    $query = "SELECT name, profile_image FROM users WHERE id = " . (int)$_SESSION['user_id'];
+    $result = mysqli_query($conn, $query);
+    if ($result && mysqli_num_rows($result) > 0) {
+        $row = mysqli_fetch_array($result);
+        $user_name = $row['name'];
+        if ($row['profile_image']) {
+            $profile_image = $row['profile_image']; 
+        }
     }
 }
 
 $successMessage = '';
 $errorMessage = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $name = htmlspecialchars(strip_tags($_POST['name'] ?? ''));
     $email = filter_var($_POST['email'] ?? '', FILTER_SANITIZE_EMAIL);
     $password = $_POST['password'] ?? '';
@@ -38,29 +45,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($password !== $confirmPassword) {
         $errorMessage = "<strong>Error:</strong> Passwords do not match.";
     } else {
-        $stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $stmt->store_result();
-
-        if ($stmt->num_rows > 0) {
+        $query = "SELECT id FROM users WHERE email = '" . mysqli_real_escape_string($conn, $email) . "'";
+        $result = mysqli_query($conn, $query);
+        if ($result && mysqli_num_rows($result) > 0) {
             $errorMessage = "<strong>Error:</strong> Email already registered.";
         } else {
             $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $conn->prepare("INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)");
-            $stmt->bind_param("sss", $name, $email, $hashedPassword);
-
-            if ($stmt->execute()) {
+            $query = "INSERT INTO users (name, email, password_hash) VALUES ('" . mysqli_real_escape_string($conn, $name) . "', '" . mysqli_real_escape_string($conn, $email) . "', '" . mysqli_real_escape_string($conn, $hashedPassword) . "')";
+            if (mysqli_query($conn, $query)) {
                 $successMessage = "Registration successful! Please <a href='login.php'>log in</a>.";
             } else {
                 $errorMessage = "<strong>Error:</strong> Registration failed. Try again.";
             }
         }
-        $stmt->close();
     }
 }
 
-$conn->close();
+mysqli_close($conn);
 ?>
 
 <!DOCTYPE html>

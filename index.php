@@ -1,7 +1,9 @@
 <?php
-session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict']);
-session_start();
-
+session_set_cookie_params([
+    'httponly' => true,
+    'samesite' => 'Strict'
+  ]);
+  session_start();
 function get_db_connection() {
     $conn = mysqli_connect('localhost', 'root', '');
     if (!$conn) {
@@ -18,7 +20,7 @@ function get_user_data($conn, $user_id) {
     $profile_image = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
     
     if ($user_id) {
-        $query = "SELECT name, profile_image FROM users WHERE id = " . intval($user_id);
+        $query = "SELECT name, profile_image FROM users WHERE id =  i$user_id";
         $result = mysqli_query($conn, $query);
         if ($result && mysqli_num_rows($result) > 0) {
             $row = mysqli_fetch_array($result);
